@@ -76,8 +76,47 @@ async def get_user_chats(user_id):
     
     try:
         return await conn.fetch(
-            "SELECT id, title FROM chats WHERE telegram_user_id = $1 ORDER BY id ASC",
+            """
+            SELECT c.id, c.title
+            FROM chats c
+            WHERE c.telegram_user_id = $1
+            AND EXISTS (
+                SELECT 1
+                FROM messages m
+                WHERE m.chat_id = c.id
+            )
+            ORDER BY c.id ASC
+            """,
             user_id
         )
+    finally:
+        await conn.close()
+        
+async def delete_user_history(user_id):
+    conn = await asyncpg.connect(
+       host=os.getenv("DB_HOST"),
+       port=int(os.getenv("DB_PORT")),
+       database=os.getenv("DB_NAME"),
+       user=os.getenv("DB_USER"),
+       password=os.getenv("DB_PASSWORD") 
+    )
+    
+    try:
+        async with conn.transaction():
+            await conn.execute(
+                """
+                DELETE FROM messages
+                WHERE chat_id IN (
+                    SELECT id FROM chats
+                    WHERE telegram_user_id = $1
+                )
+                """,
+                user_id 
+            )
+            
+            await conn.execute(
+                "DELETE FROM chats WHERE telegram_user_id = $1",
+                user_id
+            )
     finally:
         await conn.close()
