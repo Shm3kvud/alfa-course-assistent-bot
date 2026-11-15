@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from langchain_core.documents import Document
 from langchain_postgres import PGVector
@@ -22,6 +23,19 @@ def _get_embeddings() -> E5Embeddings:
 def _build_vector_store(pre_delete: bool) -> PGVector:
     settings = get_settings()
     embeddings = _get_embeddings()
+    parsed = urlsplit(
+        str(settings.vector_database_url).replace(
+            "postgresql+psycopg://", "postgresql://"
+        )
+    )
+    logger.info(
+        "vector store: db=%s:%s%s collection=%s dim=%s",
+        parsed.hostname,
+        parsed.port,
+        parsed.path,
+        settings.collection_name,
+        embeddings.dimension,
+    )
     return PGVector(
         embeddings=embeddings,
         collection_name=settings.collection_name,

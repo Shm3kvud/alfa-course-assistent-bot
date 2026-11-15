@@ -19,28 +19,17 @@ async def answer(query: str, user_id: int) -> str:
         log.exception("Ошибка при поиске в БД")
         return "Извините, у меня проблемы с базой знаний. Попробуйте позже."
 
+    types = sorted({str(d.metadata.get("source_type")) for d in docs})
+    log.info(
+        "retrieval: %r -> %d docs, types=%s",
+        query[:80],
+        len(docs),
+        ",".join(types),
+    )
+
     if not docs:
         log.warning("Контекст не найден")
         return "К сожалению, я не нашёл ответа на этот вопрос. Уточните у оператора."
-
-    linked_docs = []
-    used_urls = set()
-
-    for doc in docs:
-        url = doc.metadata.get("url")
-
-        if (
-            isinstance(url, str)
-            and url.startswith("https://kurs.alfabank.ru/")
-            and url not in used_urls
-        ):
-            linked_docs.append(doc)
-            used_urls.add(url)
-
-        if len(linked_docs) == 3:
-            break
-
-    docs = linked_docs if linked_docs else docs[:k]
 
     context_blocks = []
     for doc in docs:
