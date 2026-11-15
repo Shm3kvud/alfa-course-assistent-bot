@@ -4,6 +4,8 @@ Telegram-бот-консультант с RAG по материалам плат
 
 Проект для хакатона **Hack & Change 2026**.
 
+**В разработке участвовали:** TamerlanIkaev — A (Telegram-бот и история диалогов), Shm3kvud — B (RAG-инфраструктура и PGVector), Alinux228 — C (RAG-пайплайн, LLM, подготовка базы знаний).
+
 ---
 
 ## Быстрый старт
@@ -167,52 +169,57 @@ courses_for_bu
 
 ## Структура проекта
 
-```
+Роли: A — TamerlanIkaev, B — Shm3kvud, C — Alinux228.
+
+```text
 alpha-course-assistent-bot/
-├── main.py                 # точка входа Telegram-бота
-├── config.py               # настройки из .env (Pydantic Settings)
-├── Dockerfile              # образ приложения (python:3.12-slim + uv)
-├── docker-compose.yml      # db + init-db + init-rag + app
-├── pyproject.toml
-├── uv.lock
-├── .env.example
-├── .python-version
-├── test_rag.py             # локальная проверка retrieval/ответа без Telegram
+├── main.py                 # A: точка входа Telegram-бота
+├── config.py               # B: настройки из .env
+├── Dockerfile              # B: образ приложения (python:3.12-slim + uv)
+├── docker-compose.yml      # B: db + init-db + init-rag + app
+├── README.md               # B: документация и запуск
+├── pyproject.toml          # B
+├── uv.lock                 # B
+├── .env.example            # B
+├── .python-version         # B
+├── .dockerignore           # B
+├── .gitattributes          # B
+├── test_rag.py             # A: локальная проверка RAG без Telegram
 │
-├── bot/
+├── bot/                    # A: Telegram-бот
 │   ├── handlers/
-│   │   ├── start.py        # /start, главное меню
-│   │   └── chat.py         # вопросы, ответы, история, очистка
+│   │   ├── start.py        # A: /start, главное меню
+│   │   └── chat.py         # A: вопросы, ответы, история, очистка
 │   └── keyboards/
-│       └── keyboards.py
+│       └── keyboards.py    # A
 │
-├── db/
-│   ├── db_loader.py        # чтение courses_for_bu -> Document
-│   ├── history.py          # история чатов в Postgres (asyncpg)
-│   ├── schema.sql          # таблицы chats/messages
-│   └── check_db.py         # dev-скрипт проверки подключения
+├── db/                     # C: чтение исходной БД, A: история
+│   ├── db_loader.py        # C: courses_for_bu -> Document
+│   ├── history.py          # A: история чатов в Postgres (asyncpg)
+│   ├── schema.sql          # A: таблицы chats/messages
+│   └── check_db.py         # A: dev-скрипт проверки подключения
 │
 ├── vector_db/
-│   └── vectorstore.py      # PGVector: коллекция, upsert, поиск
+│   └── vectorstore.py      # B: PGVector: коллекция, upsert, поиск
 │
 ├── rag/
-│   ├── embeddings.py       # обёртка e5 (префиксы, нормализация, fallback)
-│   ├── retriever.py        # retrieve / aretrieve + порог
-│   ├── ingest.py           # офлайн-индексация: fetch -> embed -> upsert
-│   └── pipeline.py         # RAG-ответ: retrieve -> промпт -> LLM
+│   ├── embeddings.py       # B: e5, префиксы, нормализация, fallback
+│   ├── retriever.py        # B: retrieve / aretrieve + порог
+│   ├── ingest.py           # B: офлайн-индексация: fetch -> embed -> upsert
+│   └── pipeline.py         # C: RAG-ответ: retrieve -> промпт -> LLM
 │
 ├── llm/
-│   ├── client.py           # GigaChat
-│   └── prompts.py          # системный промпт
+│   ├── client.py           # C: GigaChat
+│   └── prompts.py          # C: системный промпт
 │
 ├── memory/
-│   └── session.py          # история для LLM (in-memory, 5 пар)
+│   └── session.py          # C: история для LLM (in-memory, 5 пар)
 │
 ├── scripts/
-│   ├── init_db.sh          # создание баз, restore дампа, схема app
-│   └── init_rag.py         # проверка коллекции и ingest при необходимости
+│   ├── init_db.sh          # B: базы, restore дампа, схема app
+│   └── init_rag.py         # B: проверка коллекции и ingest при необходимости
 │
-└── data/                   # дамп и локальные данные (в git не попадает)
+└── data/                   # общие данные (дамп, в git не попадает)
 ```
 
 > `.env`, `data/`, `.venv/`, `data_extracted.json` — в `.gitignore`.
