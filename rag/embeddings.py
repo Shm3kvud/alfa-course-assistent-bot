@@ -20,7 +20,7 @@ class E5Embeddings(Embeddings):
         self.batch_size = batch_size or settings.embedding_batch_size
         self.device = device or settings.embedding_device
         self.model = self._load_model()
-        self.dimension = self.model.get_sentence_embedding_dimension()
+        self.dimension = self.model.get_embedding_dimension()
         self.use_prefixes = "e5" in self.model_name.lower()
 
     def _load_model(self) -> SentenceTransformer:

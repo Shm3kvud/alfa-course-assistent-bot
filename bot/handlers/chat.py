@@ -1,13 +1,15 @@
 import asyncio
+from aiogram.utils.chat_action import ChatActionSender
+from contextlib import suppress
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from db.history import create_chat, get_last_chat, save_message, get_user_chats, delete_user_history
+from db.history import create_chat, save_message, get_user_chats, delete_user_history, get_chat_messages
 from aiogram import Router, types, F
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from bot.keyboards.keyboards import button
+from telegramify_markdown import convert, split_entities
 from rag.pipeline import answer
 import re
-import html
 
 
 router = Router()
@@ -16,61 +18,106 @@ router = Router()
 class Questions(StatesGroup):
     waiting_question = State()
 
+def resource_buttons(text):
+    links = {}
+
+    if "Ссылки на найденные курсы:" in text:
+        text, section = text.rsplit("Ссылки на найденные курсы:", 1)
+
+        for title, url in re.findall(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", section):
+            if url.startswith("https://kurs.alfabank.ru/"):
+                links[url] = title
+
+    for title, url in re.findall(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", text):
+        if url.startswith("https://kurs.alfabank.ru/"):
+            links.setdefault(url, title)
+
+    for url in re.findall(r"https?://[^\s<>()\[\]*]+", text):
+        url = url.rstrip(".,;:!?\\")
+        if url.startswith("https://kurs.alfabank.ru/"):
+            links.setdefault(url, "Материал")
+
+    text = re.sub(r"\[[^\]]+\]\(https?://[^)\s]+\)", "", text)
+    text = re.sub(r"https?://[^\s<>()\[\]*]+", "", text)
+    text = re.sub(r"(?m)^\s*\*?Ссылка:\*?\s*$", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    keyboard = [
+        [InlineKeyboardButton(text=f"📚 {title[:55]}", url=url)]
+        for url, title in list(links.items())[:3]
+    ]
+
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None
+
+    return text, markup
 
 @router.callback_query(F.data == "ask_question")
 async def ask_question(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
+    await state.clear()
     await state.set_state(Questions.waiting_question)
-    
     await callback.message.answer(
         "Расскажи, с какой задачей в бизнесе нужна помощь."
     )
     
-    
+async def animation_dots(status):
+    while True:
+        for dots in ("", ".", "..", "..."):
+            await status.edit_text(f"🔎 Подбираю материалы{dots}")
+            await asyncio.sleep(0.5)
+            
+            
 @router.message(Questions.waiting_question, F.text)
-async def get_question(message: types.Message):
+async def get_question(message: types.Message, state: FSMContext):
     question = message.text.strip()
     
     if not question:
         await message.answer("Напиши свой вопрос")
         return
     
-    
-    chat_id = await get_last_chat(message.from_user.id)
+    data = await state.get_data()
+    chat_id = data.get("active_chat_id")
     
     if chat_id is None:
         chat_id = await create_chat(message.from_user.id, question[:60])
+        await state.update_data(active_chat_id=chat_id)
         
     await save_message(chat_id, "user", question)
     
-    response = await answer(question, message.from_user.id)
+    status = await message.answer("🔎 Подбираю материалы...")
+    animation = asyncio.create_task(animation_dots(status))
+    
+    try:
+        async with ChatActionSender.typing(
+            bot=message.bot,
+            chat_id=message.chat.id
+        ):
+            response = await answer(question, message.from_user.id)
+    finally:
+        animation.cancel()
+        
+        with suppress(asyncio.CancelledError):
+            await animation
+        
+        await status.delete()
     
     
-    response = response.replace("**", "")
+    text, keyboard = resource_buttons(response)
 
-    formatted = []
-    items = []
+    text, entities = convert(text)
+    chunks = split_entities(text, entities, max_utf16_len=4000)
 
-    for line in response.splitlines():
-        if re.match(r"^\s*\d+[.)]\s*", line):
-            items.append(html.escape(line))
-        else:
-            if items:
-                formatted.append(
-                    "<blockquote>" + "\n".join(items) + "</blockquote>"
-                )
-                items = []
-
-            formatted.append(html.escape(line))
-
-    if items:
-        formatted.append(
-            "<blockquote>" + "\n".join(items) + "</blockquote>"
+    for i, (part, part_entities) in enumerate(chunks):
+        await message.answer(
+            part,
+            entities=[entity.to_dict() for entity in part_entities],
+            parse_mode=None,
+            reply_markup=keyboard if i == len(chunks) - 1 else None
         )
 
-    await message.answer("\n".join(formatted), parse_mode="HTML")
-
     await save_message(chat_id, "assistant", response)
+
+
 
     
 
@@ -78,7 +125,6 @@ async def get_question(message: types.Message):
 async def new_chat(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     
-    await create_chat(callback.from_user.id, "Новый диалог")
     
     await state.clear()
     await state.set_state(Questions.waiting_question)
@@ -107,7 +153,7 @@ async def show_history(callback: types.CallbackQuery):
         keyboard.append([
             types.InlineKeyboardButton(
                 text=f"{i}. {chat['title'][:40]}",
-                callback_data=f"open_chat:{chat['id']}:[{page}]"
+                callback_data=f"open_chat:{chat['id']}:{page}"
             )
         ])
     
@@ -152,6 +198,60 @@ async def show_history(callback: types.CallbackQuery):
         reply_markup=types.InlineKeyboardMarkup(inline_keyboard=keyboard)
     )
     
+
+@router.callback_query(F.data.startswith("open_chat:"))
+async def open_chat(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    chat_id = int(callback.data.split(":")[1])
+    
+    chats = await get_user_chats(callback.from_user.id)
+    messages = await get_chat_messages(chat_id, callback.from_user.id)
+    
+    title = None
+
+    for chat in chats:
+        if chat["id"] == chat_id:
+            title = chat["title"]
+            break
+        
+    if title is None:
+        await callback.message.answer("Диалог не найден")
+        return 
+
+    answer_text = None
+    found_question = False
+
+    for message in messages:
+        if message["role"] == "user":
+            found_question = message["content"][:60] == title
+
+        elif message["role"] == "assistant" and found_question:
+            answer_text = message["content"]
+            break
+
+    if answer_text is None:
+        await callback.message.answer("Сохранённый ответ не найден")
+        return
+
+    await state.clear()
+    await state.update_data(active_chat_id=chat_id)
+    await state.set_state(Questions.waiting_question)
+
+    
+    answer_text, keyboard = resource_buttons(answer_text)
+
+    text, entities = convert(answer_text)
+    chunks = split_entities(text, entities, max_utf16_len=4000)
+
+    for i, (part, part_entities) in enumerate(chunks):
+        await callback.message.answer(
+            part,
+            entities=[entity.to_dict() for entity in part_entities],
+            parse_mode=None,
+            reply_markup=keyboard if i == len(chunks) - 1 else None
+        )
+
     
 @router.callback_query(F.data == "back_menu")
 async def back_menu(callback: types.CallbackQuery):
@@ -210,4 +310,10 @@ async def confirm_clear_history(callback: types.CallbackQuery, state: FSMContext
                 callback_data="back_menu"
             )]
         ])
+    )
+
+@router.message(~F.text)
+async def unsupported_message(message: types.Message):
+    await message.answer(
+        "Напишите ваш вопрос текстом."
     )

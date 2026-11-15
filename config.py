@@ -17,12 +17,12 @@ class Settings(BaseSettings):
 
     # векторная бд
     vector_database_url: PostgresDsn
-    collection_name: str = "courses"
+    collection_name: str = "knowledge"
 
     # модель эмбеддингов, 2 вариации, определяется при старте из условий
     # размер батча и на чем работает
-    embedding_model: str = "intfloat/multilingual-e5-large"
-    embedding_fallback_model: str = "intfloat/multilingual-e5-small"
+    embedding_model: str = "intfloat/multilingual-e5-small"
+    embedding_fallback_model: str = "intfloat/multilingual-e5-large"
     embedding_batch_size: int = Field(16, gt=0)
     embedding_device: str = "cpu"
 
@@ -37,12 +37,10 @@ class Settings(BaseSettings):
     # право доступа персональное (физ лицо)
     #
     gigachat_api_key: SecretStr | None = None
-    gigachat_model: str = "GigaChat-2"
+    gigachat_model: str = "GigaChat-2-Max"
     gigachat_scope: str = "GIGACHAT_API_PERS"
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-
-settings = get_settings()
