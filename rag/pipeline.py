@@ -4,6 +4,7 @@ from llm.client import generate
 from llm.prompts import system_prompt
 from memory.session import get_history, add_to_history
 from config import get_settings
+import re
 
 log = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ async def answer(query: str, user_id: int) -> str:
     history = get_history(user_id)
 
     try:
-        docs = await aretrieve(query, k)
+        docs = await aretrieve(query, max(k, 15))
     except Exception:
         log.exception("Ошибка при поиске в БД")
         return "Извините, у меня проблемы с базой знаний. Попробуйте позже."
@@ -22,10 +23,30 @@ async def answer(query: str, user_id: int) -> str:
         log.warning("Контекст не найден")
         return "К сожалению, я не нашёл ответа на этот вопрос. Уточните у оператора."
 
+    linked_docs = []
+    used_urls = set()
+
+    for doc in docs:
+        url = doc.metadata.get("url")
+
+        if (
+            isinstance(url, str)
+            and url.startswith("https://kurs.alfabank.ru/")
+            and url not in used_urls
+        ):
+            linked_docs.append(doc)
+            used_urls.add(url)
+
+        if len(linked_docs) == 3:
+            break
+
+    docs = linked_docs if linked_docs else docs[:k]
+
     context_blocks = []
     for doc in docs:
         block = doc.page_content
         meta = doc.metadata
+
 
         facts = []
 
@@ -72,8 +93,42 @@ async def answer(query: str, user_id: int) -> str:
             question=query,
             history=history,
         )
+        
         add_to_history(user_id, query, answer_text)
+
+        
+        links = []
+        used_urls = set()
+
+        for doc in docs:
+            url = doc.metadata.get("url")
+
+            if (
+                not isinstance(url, str)
+                or not url.startswith("https://kurs.alfabank.ru/")
+                or url in used_urls
+            ):
+                continue
+
+            match = re.match(r"^[^:]+:\s*'([^']+)'", doc.page_content)
+            title = match.group(1) if match else doc.metadata.get("course_title") or "Материал"
+            title = re.sub(r"[\[\]\n]", "", title).strip()
+
+            links.append((title, url))
+            used_urls.add(url)
+
+            if len(links) == 3:
+                break
+
+        if links:
+            answer_text += "\n\nСсылки на найденные курсы:\n"
+            answer_text += "\n".join(
+                f"[{title}]({url})" for title, url in links
+            )
+
         return answer_text
+
+
 
     except Exception:
         log.exception("Ошибка при генерации ответа LLM")
