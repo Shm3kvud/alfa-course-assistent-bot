@@ -3,6 +3,7 @@ from aiogram.utils.chat_action import ChatActionSender
 from contextlib import suppress
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from db.history import create_chat, save_message, get_user_chats, delete_user_history, get_chat_messages
+from memory.session import clear_history as clear_llm_history, set_history as set_llm_history
 from aiogram import Router, types, F
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -125,6 +126,7 @@ async def get_question(message: types.Message, state: FSMContext):
 async def new_chat(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     
+    clear_llm_history(callback.from_user.id)
     
     await state.clear()
     await state.set_state(Questions.waiting_question)
@@ -199,57 +201,58 @@ async def show_history(callback: types.CallbackQuery):
     )
     
 
+@router.callback_query(F.data == "history_noop")
+async def history_noop(callback: types.CallbackQuery):
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("open_chat:"))
 async def open_chat(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
     chat_id = int(callback.data.split(":")[1])
-    
-    chats = await get_user_chats(callback.from_user.id)
     messages = await get_chat_messages(chat_id, callback.from_user.id)
-    
-    title = None
 
-    for chat in chats:
-        if chat["id"] == chat_id:
-            title = chat["title"]
-            break
-        
-    if title is None:
+    if not messages:
         await callback.message.answer("Диалог не найден")
-        return 
+        return
 
-    answer_text = None
-    found_question = False
+    pairs = []
+    user_message = None
 
     for message in messages:
         if message["role"] == "user":
-            found_question = message["content"][:60] == title
+            user_message = message["content"]
+        elif message["role"] == "assistant" and user_message is not None:
+            pairs.append({
+                "user": user_message,
+                "assistant": message["content"],
+            })
+            user_message = None
 
-        elif message["role"] == "assistant" and found_question:
-            answer_text = message["content"]
-            break
-
-    if answer_text is None:
-        await callback.message.answer("Сохранённый ответ не найден")
-        return
+    set_llm_history(callback.from_user.id, pairs)
 
     await state.clear()
     await state.update_data(active_chat_id=chat_id)
     await state.set_state(Questions.waiting_question)
 
-    
-    answer_text, keyboard = resource_buttons(answer_text)
+    history_blocks = []
 
-    text, entities = convert(answer_text)
+    for message in messages[-3:]:
+        if message["role"] == "user":
+            history_blocks.append(f"Вы: {message['content']}")
+        else:
+            answer_text, _ = resource_buttons(message["content"])
+            history_blocks.append(f"Бот: {answer_text}")
+
+    text, entities = convert("\n\n".join(history_blocks))
     chunks = split_entities(text, entities, max_utf16_len=4000)
 
-    for i, (part, part_entities) in enumerate(chunks):
+    for part, part_entities in chunks:
         await callback.message.answer(
             part,
             entities=[entity.to_dict() for entity in part_entities],
             parse_mode=None,
-            reply_markup=keyboard if i == len(chunks) - 1 else None
         )
 
     
@@ -300,6 +303,7 @@ async def confirm_clear_history(callback: types.CallbackQuery, state: FSMContext
         )
         return 
     
+    clear_llm_history(callback.from_user.id)
     await state.clear()
     
     await callback.message.edit_text(
