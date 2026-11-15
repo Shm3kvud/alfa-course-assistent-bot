@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # для retrieval.py
     top_k: int = Field(5, gt=0)
-    score_threshold: float = Field(0.7, ge=0, le=1)
+    score_threshold: float = Field(0.84, ge=0, le=1)
 
     # токен бота
     bot_token: SecretStr | None = None
@@ -44,3 +44,5 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+settings = get_settings()
