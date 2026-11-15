@@ -15,7 +15,7 @@ Telegram-бот-консультант с RAG по материалам плат
 ### Что нужно заранее
 
 - Docker Engine или Docker Desktop с Compose.
-- Файл `.env` — скопируйте `.env.example` и заполните `BOT_TOKEN` и `GIGACHAT_API_KEY`.
+- Файл `.env` — скопируйте `.env.example` и заполните `BOT_TOKEN` и `GIGACHAT_API_KEY` (из Сбер Студио).
 - Файл `data/alfa_course_hackathon.backup` (~19 МБ) — дамп платформы, выдаётся организаторами. В git он не хранится.
 
 ### Одна команда
@@ -239,7 +239,7 @@ cp .env.example .env
 Заполните в `.env`:
 
 - `BOT_TOKEN` — токен бота от [@BotFather](https://t.me/BotFather);
-- `GIGACHAT_API_KEY` — ключ GigaChat.
+- `GIGACHAT_API_KEY` — ключ GigaChat (из Сбер Студио).
 
 Остальные значения можно оставить как в `.env.example`: для Docker compose сам переопределяет адреса БД на хост `db`.
 
