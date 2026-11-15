@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # право доступа персональное (физ лицо)
     #
     gigachat_api_key: SecretStr | None = None
-    gigachat_model: str = "GigaChat-2"
+    gigachat_model: str = "GigaChat-2-Max"
     gigachat_scope: str = "GIGACHAT_API_PERS"
 
 
