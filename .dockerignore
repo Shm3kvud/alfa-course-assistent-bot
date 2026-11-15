@@ -1,0 +1,28 @@
+# git и служебные файлы
+.git
+.gitignore
+
+# виртуальное окружение и кэш Python
+.venv
+__pycache__
+*.pyc
+
+# секреты и локальная конфигурация
+.env
+.env.example
+
+# данные и дампы (монтируются в контейнер, в образ не кладём)
+data
+*.backup
+*.sql
+data_extracted.json
+
+# локальные инструменты и заметки
+demo_rag.py
+test_rag.py
+AGENTS.md
+
+# сам Docker-контекст
+Dockerfile
+docker-compose.yml
+.dockerignore

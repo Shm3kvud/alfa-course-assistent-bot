@@ -7,15 +7,73 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - ./data:/data:ro
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+    restart: unless-stopped
+
+  init-db:
+    image: pgvector/pgvector:pg17
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    volumes:
+      - ./data:/data:ro
+      - ./db/schema.sql:/schema.sql:ro
+      - ./scripts/init_db.sh:/scripts/init_db.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/init_db.sh"]
+    restart: "no"
+
+  init-rag:
+    image: alpha-course-bot:local
+    build:
+      context: .
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      SOURCE_DATABASE_URL: postgresql://postgres:postgres@db:5432/courses_for_bu
+      APP_DATABASE_URL: postgresql://postgres:postgres@db:5432/app
+      VECTOR_DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/rag
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    command: ["python", "scripts/init_rag.py"]
+    restart: "no"
+
+  app:
+    image: alpha-course-bot:local
+    build:
+      context: .
+    depends_on:
+      db:
+        condition: service_healthy
+      init-rag:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      SOURCE_DATABASE_URL: postgresql://postgres:postgres@db:5432/courses_for_bu
+      APP_DATABASE_URL: postgresql://postgres:postgres@db:5432/app
+      VECTOR_DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/rag
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: app
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    restart: unless-stopped
 
 volumes:
   pgdata:

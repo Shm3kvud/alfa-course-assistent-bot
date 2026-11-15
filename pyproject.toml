@@ -16,4 +16,13 @@ dependencies = [
     "psycopg[binary]>=3.3.8",
     "sentence-transformers>=6.2.0",
     "telegramify-markdown>=1.4.2",
+    "torch>=2.15.0",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
